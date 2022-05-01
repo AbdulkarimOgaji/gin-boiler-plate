@@ -1,6 +1,7 @@
 package main
 
 import (
+	"create-gin-app/plates"
 	"fmt"
 	"io/fs"
 	"log"
@@ -10,42 +11,6 @@ import (
 
 	"github.com/urfave/cli"
 )
-
-const boilerPlate = `package main
-	import(
-		"github.com/gin-gonic/gin"
-		"log"
-	)
-
-	func homePage(c *gin.Context) {
-		c.HTML(200, "index.html", nil)
-	}
-
-
-	func main() {
-		r := gin.Default()
-		r.LoadHTMLGlob("templates/*")
-
-		r.GET("/", homePage)
-
-		err := r.Run(":%v")
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-`
-const index = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gin-App</title>
-</head>
-<body>
-    <h1>Welcome to gin App</h1>
-</body>
-</html>`
 
 func openbrowser(url string) {
 	var err error
@@ -64,10 +29,6 @@ func openbrowser(url string) {
 		log.Fatal(err)
 	}
 
-}
-
-func enableReload() {
-	log.Println("Live Reload enables")
 }
 
 func main() {
@@ -89,6 +50,7 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
+		log.Println(c.Args())
 		if c.NArg() < 1 {
 			err := fmt.Errorf("you did not specify the directory for the project")
 			log.Println(err)
@@ -96,31 +58,54 @@ func main() {
 		}
 		mainDir := c.Args()[0]
 		port := c.String("port")
+
 		os.Mkdir(mainDir, fs.ModeDir)
 		os.Chdir(mainDir)
-		os.Mkdir("templates", fs.ModeDir)
+
+		//main.go file
 		mainFile, err := os.Create("main.go")
 		if err != nil {
 			return err
 		}
-		mainFile.WriteString(fmt.Sprintf(boilerPlate, port))
+		mainFile.WriteString(fmt.Sprintf(plates.ServerFile, port))
+
+		// live reload
+		if c.Bool("live") {
+			cmd := exec.Command("go", "install", "github.com/codegangsta/gin")
+			cmd.Run()
+			port = "3001"
+		}
+
+		// go mod init and tidy
 		cmd := exec.Command("go", "mod", "init", mainDir)
 		cmd.Run()
 		cmd = exec.Command("go", "mod", "tidy")
 		cmd.Run()
+
+		// make html file
+		os.Mkdir("templates", fs.ModeDir)
 		os.Chdir("templates")
-		mainFile, _ = os.Create("index.html")
-		mainFile.WriteString(index)
+		indexHtml, err := os.Create("index.html")
+		indexHtml.WriteString(plates.Indexhtml)
+
+		// go back to main dir
 		os.Chdir("..")
-		cmd = exec.Command("go", "run", "main.go")
+
+		// start process in current stdout
+		if c.Bool("live") {
+			cmd = exec.Command("gin", "-p", "3001", "run", "main.go")
+		} else {
+			cmd = exec.Command("go", "run", "main.go")
+		}
+
 		cmd.Stdout = os.Stdout
 		cmd.Start()
+
+		// open browser if instructed
 		if c.Bool("browser") {
 			openbrowser(fmt.Sprintf("http://localhost:%v", port))
 		}
-		if c.Bool("live") {
-			enableReload()
-		}
+
 		return nil
 	}
 	app.Run(os.Args)
